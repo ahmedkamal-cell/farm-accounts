@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>حسابات مزرعة سملوط</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1D4D32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="حسابات المزرعة">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&family=Aref+Ruqaa:wght@700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --زرع:#2C6E49; --زرع-غامق:#1D4D32; --قمح:#C9A227; --قمح-فاتح:#E8D48B;
+  --طين:#8A6642; --ورق:#F7F5EC; --بطاقة:#FFFFFF; --حبر:#22301F;
+  --رمادي:#7C8577; --خط:#E3E0D2; --مصروف:#A6432F; --إيراد:#2C6E49;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Tajawal',sans-serif;background:var(--ورق);color:var(--حبر);min-height:100vh;
+  background-image:repeating-linear-gradient(90deg,transparent 0 96px,rgba(44,110,73,.035) 96px 98px);}
+.container{max-width:1080px;margin:0 auto;padding:16px 16px 64px}
+header{padding:26px 0 10px}
+.عنوان{font-family:'Aref Ruqaa',serif;font-size:clamp(26px,5vw,40px);color:var(--زرع-غامق);line-height:1.3}
+.تحت-العنوان{color:var(--رمادي);font-size:14px;margin-top:2px}
+.شريحة-صافي{display:inline-flex;align-items:baseline;gap:8px;margin-top:14px;background:var(--بطاقة);
+  border:1px solid var(--خط);border-radius:14px;padding:10px 18px;box-shadow:0 1px 3px rgba(34,48,31,.06)}
+.شريحة-صافي b{font-size:24px;font-variant-numeric:tabular-nums}
+.شريحة-صافي.ربح b{color:var(--إيراد)}.شريحة-صافي.خسارة b{color:var(--مصروف)}
+/* الحقول المقسمة - العنصر المميز */
+.حقل-الحصص{margin:20px 0 4px}
+.حقل-الحصص .شريط{display:flex;height:34px;border-radius:10px;overflow:hidden;border:1.5px solid var(--زرع-غامق)}
+.حقل-الحصص .قطعة{display:flex;align-items:center;justify-content:center;color:#fff;font-size:11.5px;font-weight:700;
+  white-space:nowrap;overflow:hidden;border-inline-start:1.5px dashed rgba(255,255,255,.55)}
+.حقل-الحصص .قطعة:first-child{border-inline-start:none}
+.مفتاح-الحصص{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:8px;font-size:12px;color:var(--رمادي)}
+.مفتاح-الحصص i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-inline-end:5px;vertical-align:-1px}
+/* التبويبات */
+.تبويبات{display:flex;gap:6px;margin:22px 0 16px;border-bottom:2px solid var(--خط)}
+.تبويبات button{font-family:inherit;font-size:15px;font-weight:700;padding:10px 20px;border:none;background:none;
+  color:var(--رمادي);cursor:pointer;border-radius:10px 10px 0 0;border-bottom:3px solid transparent;margin-bottom:-2px}
+.تبويبات button.نشط{color:var(--زرع-غامق);border-bottom-color:var(--زرع);background:rgba(44,110,73,.07)}
+.تبويبات button:focus-visible{outline:2px solid var(--قمح);outline-offset:2px}
+/* النموذج */
+.بطاقة{background:var(--بطاقة);border:1px solid var(--خط);border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(34,48,31,.05)}
+form.إدخال{display:grid;grid-template-columns:130px 1fr 1fr 130px;gap:10px;align-items:end}
+form.إدخال .ممتد{grid-column:1/-1}
+label{display:block;font-size:12px;font-weight:700;color:var(--رمادي);margin-bottom:4px}
+input,select{width:100%;font-family:inherit;font-size:14px;padding:9px 10px;border:1px solid var(--خط);
+  border-radius:9px;background:#FCFBF6;color:var(--حبر)}
+input:focus,select:focus{outline:2px solid var(--زرع);outline-offset:0;border-color:var(--زرع)}
+.أزرار{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+button.أساسي{font-family:inherit;font-weight:700;font-size:14px;color:#fff;background:var(--زرع);border:none;
+  border-radius:9px;padding:10px 22px;cursor:pointer}
+button.أساسي:hover{background:var(--زرع-غامق)}
+button.ثانوي{font-family:inherit;font-weight:500;font-size:13px;color:var(--حبر);background:none;
+  border:1px solid var(--خط);border-radius:9px;padding:9px 14px;cursor:pointer}
+button.ثانوي:hover{border-color:var(--رمادي)}
+button:focus-visible{outline:2px solid var(--قمح);outline-offset:2px}
+/* الجدول */
+.لف-الجدول{overflow-x:auto;margin-top:14px}
+table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:680px}
+th{background:var(--زرع-غامق);color:#fff;font-weight:700;padding:9px 10px;text-align:right;white-space:nowrap}
+th:first-child{border-radius:0 9px 0 0}th:last-child{border-radius:9px 0 0 0}
+td{padding:8px 10px;border-bottom:1px solid var(--خط);vertical-align:top}
+tr:nth-child(even) td{background:#FAF9F1}
+td.مبلغ{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+td.شهر{color:var(--رمادي);white-space:nowrap;font-size:12.5px}
+td .حذف{background:none;border:none;color:var(--مصروف);cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:700}
+tfoot td{font-weight:900;background:var(--قمح-فاتح)!important;border-bottom:none}
+.فارغ{text-align:center;color:var(--رمادي);padding:34px 10px;font-size:14px}
+/* الملخص */
+.شبكة-ملخص{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+.بطاقة-رقم{background:var(--بطاقة);border:1px solid var(--خط);border-radius:14px;padding:14px 16px}
+.بطاقة-رقم .تسمية{font-size:12.5px;color:var(--رمادي);font-weight:700}
+.بطاقة-رقم .قيمة{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums;margin-top:4px}
+.بطاقة-رقم.إيرادات .قيمة{color:var(--إيراد)}
+.بطاقة-رقم.مصروفات .قيمة{color:var(--مصروف)}
+.مرشحات{display:flex;gap:10px;align-items:end;margin-bottom:14px;flex-wrap:wrap}
+.مرشحات>div{min-width:140px}
+h3.قسم{font-size:16px;font-weight:900;color:var(--زرع-غامق);margin:22px 0 10px;display:flex;align-items:center;gap:8px}
+h3.قسم::after{content:"";flex:1;height:1px;background:var(--خط)}
+.ملاحظة{font-size:12px;color:var(--رمادي);margin-top:10px;line-height:1.7}
+.تحميل{text-align:center;padding:70px 0;color:var(--رمادي);font-size:15px}
+@media(max-width:760px){
+  form.إدخال{grid-template-columns:1fr 1fr}
+  .شبكة-ملخص{grid-template-columns:1fr}
+  .حقل-الحصص .قطعة{font-size:0}
+}
+@media(prefers-reduced-motion:no-preference){
+  .بطاقة,.بطاقة-رقم{transition:box-shadow .15s}
+}
+</style>
+</head>
+<body>
+<div class="container" id="app">
+  <div class="تحميل">جارٍ تحميل بيانات المزرعة…</div>
+</div>
+
+<script>
+"use strict";
+/* ====== ثوابت العقد ====== */
+const CATS = ["التقاوي والبذور والشتلات","الأسمدة","المبيدات ومستلزمات المكافحة","الري وصيانة شبكاته وآباره",
+"المياه ورسومها","الوقود والسولار والزيوت","الكهرباء ورسومها","أجور العمالة الزراعية","صيانة المعدات وقطع الغيار",
+"الآلات والميكنة الزراعية","الحصاد وجمع المحاصيل","النقل والمشال","التعبئة والتغليف","التخزين والتبريد",
+"الضرائب","الرسوم الحكومية","رسوم الجمعية الزراعية","مصروفات أخرى"];
+const REV_TYPES = ["بيع محصول","إيراد آخر"];
+const PARTNERS = [
+  {n:"عمر عبد القادر محمد عبد القادر", g:"أ", f:10, c:"#2C6E49"},
+  {n:"عبد الحميد سيد عبد الحميد عبد الله", g:"أ", f:35, c:"#4C8C63"},
+  {n:"أحمد كمال محمد غريب", g:"ب", f:5, c:"#C9A227"},
+  {n:"محمود محسن منصور عبد السيد", g:"ب", f:5, c:"#B08915"},
+  {n:"محسن منصور عبد السيد فرح", g:"ب", f:15, c:"#8A6642"},
+];
+const TOTAL_FED = 70;
+const MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
+const KEY = "farm-accounts-samalut-v1";
+
+/* ====== الحالة ====== */
+let data = {expenses:[], revenues:[]};
+let tab = "exp";
+let fYear = "all", fMonth = "all";
+
+/* ====== أدوات ====== */
+const fmt = n => n.toLocaleString("ar-EG",{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtPct = n => (n*100).toLocaleString("ar-EG",{minimumFractionDigits:2,maximumFractionDigits:4}) + "%";
+const arNum = n => n.toLocaleString("ar-EG");
+const monthOf = d => MONTHS[new Date(d+"T00:00:00").getMonth()];
+const yearOf = d => new Date(d+"T00:00:00").getFullYear();
+const esc = s => String(s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+
+async function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(data)); }
+  catch(e){ console.error("تعذر الحفظ", e); toast("تعذر حفظ البيانات — المساحة ممتلئة؟"); }
+}
+async function load(){
+  try{
+    const v = localStorage.getItem(KEY);
+    if(v) data = JSON.parse(v);
+  }catch(e){ /* لا توجد بيانات محفوظة بعد */ }
+}
+function toast(msg){
+  let t = document.getElementById("toast");
+  if(!t){ t = document.createElement("div"); t.id="toast";
+    t.style.cssText="position:fixed;bottom:20px;right:50%;transform:translateX(50%);background:#22301F;color:#fff;padding:10px 18px;border-radius:10px;font-size:13.5px;z-index:9;font-family:Tajawal";
+    document.body.appendChild(t); }
+  t.textContent = msg; t.style.display="block";
+  clearTimeout(t._h); t._h = setTimeout(()=>t.style.display="none", 2600);
+}
+
+/* ====== تجميع ====== */
+function rowsFiltered(list){
+  return list.filter(r => (fYear==="all" || yearOf(r.date)===+fYear) && (fMonth==="all" || new Date(r.date+"T00:00:00").getMonth()===+fMonth));
+}
+function totals(){
+  const rev = rowsFiltered(data.revenues).reduce((s,r)=>s+r.amount,0);
+  const exp = rowsFiltered(data.expenses).reduce((s,r)=>s+r.amount,0);
+  return {rev, exp, net: rev-exp};
+}
+function allYears(){
+  const ys = new Set([...data.expenses,...data.revenues].map(r=>yearOf(r.date)));
+  return [...ys].sort();
+}
+
+/* ====== البناء ====== */
+function render(){
+  const app = document.getElementById("app");
+  const t = totals();
+  app.innerHTML = `
+  <header>
+    <div class="عنوان">حسابات مزرعة سملوط</div>
+    <div class="تحت-العنوان">٧٠ فداناً – مدق البترول – مركز سملوط – محافظة المنيا · النسب وفق عقد الشراكة</div>
+    <div class="شريحة-صافي ${t.net>=0?"ربح":"خسارة"}">
+      <span style="font-size:13px;color:var(--رمادي);font-weight:700">صافي ${t.net>=0?"الربح":"الخسارة"}${filterLabel()}</span>
+      <b>${fmt(Math.abs(t.net))} ج.م</b>
+    </div>
+    <div class="حقل-الحصص" title="حقل الحصص: كل قطعة بعرض حصة صاحبها من الـ٧٠ فداناً">
+      <div class="شريط">${PARTNERS.map(p=>`<div class="قطعة" style="width:${p.f/TOTAL_FED*100}%;background:${p.c}">${p.n.split(" ")[0]} · ${arNum(p.f)} ف</div>`).join("")}</div>
+      <div class="مفتاح-الحصص">${PARTNERS.map(p=>`<span><i style="background:${p.c}"></i>${p.n.split(" ").slice(0,2).join(" ")} (${p.g}) — ${arNum(p.f)} / ٧٠</span>`).join("")}</div>
+    </div>
+  </header>
+  <nav class="تبويبات" role="tablist">
+    <button role="tab" class="${tab==="exp"?"نشط":""}" onclick="setTab('exp')">المصروفات</button>
+    <button role="tab" class="${tab==="rev"?"نشط":""}" onclick="setTab('rev')">الإيرادات</button>
+    <button role="tab" class="${tab==="sum"?"نشط":""}" onclick="setTab('sum')">الملخص والتوزيع</button>
+  </nav>
+  <main>${tab==="exp"?viewEntry("exp"):tab==="rev"?viewEntry("rev"):viewSummary()}</main>`;
+}
+function filterLabel(){
+  if(fYear==="all" && fMonth==="all") return " (الكل)";
+  let s = " (";
+  s += fMonth==="all" ? "كل الشهور" : MONTHS[+fMonth];
+  s += fYear==="all" ? "" : " " + arNum(+fYear);
+  return s + ")";
+}
+
+function viewEntry(kind){
+  const isExp = kind==="exp";
+  const list = isExp ? data.expenses : data.revenues;
+  const catOpts = (isExp?CATS:REV_TYPES).map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  const rows = [...list].sort((a,b)=>b.date.localeCompare(a.date));
+  const total = list.reduce((s,r)=>s+r.amount,0);
+  return `
+  <div class="بطاقة">
+    <form class="إدخال" onsubmit="addRow(event,'${kind}')">
+      <div><label>التاريخ</label><input required type="date" name="date"></div>
+      <div><label>${isExp?"البند":"النوع"}</label><select required name="cat"><option value="" disabled selected>اختر…</option>${catOpts}</select></div>
+      <div><label>البيان / الوصف</label><input type="text" name="desc" placeholder="${isExp?"مثال: سماد يوريا للقمح":"مثال: بيع محصول القمح"}"></div>
+      <div><label>المبلغ (ج.م)</label><input required type="number" name="amount" min="0.01" step="0.01" inputmode="decimal"></div>
+      <div class="ممتد"><label>ملاحظات</label><input type="text" name="notes"></div>
+      <div class="ممتد أزرار">
+        <button class="أساسي" type="submit">${isExp?"إضافة المصروف":"إضافة الإيراد"}</button>
+        <button class="ثانوي" type="button" onclick="exportCsv('${kind}')">تصدير CSV</button>
+        ${isExp?`<button class="ثانوي" type="button" onclick="backupJson()">نسخة احتياطية</button>
+        <button class="ثانوي" type="button" onclick="document.getElementById('restoreFile').click()">استرجاع نسخة</button>
+        <button class="ثانوي" type="button" onclick="resetAll()" style="color:var(--مصروف)">مسح كل البيانات</button>`:""}
+      </div>
+    </form>
+  </div>
+  <div class="لف-الجدول بطاقة" style="padding:0">
+    <table>
+      <thead><tr><th>التاريخ</th><th>الشهر</th><th>السنة</th><th>${isExp?"البند":"النوع"}</th><th>البيان</th><th>المبلغ (ج.م)</th><th>ملاحظات</th><th></th></tr></thead>
+      <tbody>
+        ${rows.length? rows.map(r=>`
+          <tr>
+            <td style="white-space:nowrap">${arNum(new Date(r.date+"T00:00:00").getDate())}/${arNum(new Date(r.date+"T00:00:00").getMonth()+1)}/${arNum(yearOf(r.date))}</td>
+            <td class="شهر">${monthOf(r.date)}</td><td class="شهر">${arNum(yearOf(r.date))}</td>
+            <td>${esc(r.cat)}</td><td>${esc(r.desc||"—")}</td>
+            <td class="مبلغ" style="color:${isExp?"var(--مصروف)":"var(--إيراد)"}">${fmt(r.amount)}</td>
+            <td>${esc(r.notes||"")}</td>
+            <td><button class="حذف" onclick="delRow('${kind}','${r.id}')" aria-label="حذف">حذف ✕</button></td>
+          </tr>`).join("")
+        : `<tr><td colspan="8" class="فارغ">لا توجد ${isExp?"مصروفات":"إيرادات"} مسجلة بعد — أضف أول قيد من النموذج أعلاه.</td></tr>`}
+      </tbody>
+      ${rows.length?`<tfoot><tr><td colspan="5">الإجمالي (${arNum(rows.length)} قيد)</td><td class="مبلغ">${fmt(total)}</td><td colspan="2"></td></tr></tfoot>`:""}
+    </table>
+  </div>`;
+}
+
+function viewSummary(){
+  const t = totals();
+  const years = allYears();
+  const catRows = CATS.map(c=>{
+    const v = rowsFiltered(data.expenses).filter(r=>r.cat===c).reduce((s,r)=>s+r.amount,0);
+    return {c,v};
+  }).filter(r=>r.v>0);
+  const groups = [
+    {n:"الشريك أ (الشريك الرئيسي)", f:45, fill:"rgba(44,110,73,.09)"},
+    {n:"الشريك ب", f:25, fill:"rgba(201,162,39,.12)"},
+  ];
+  const shareRow = (name, fed, fill, bold) => {
+    const ratio = fed/TOTAL_FED;
+    return `<tr style="background:${fill}">
+      <td style="font-weight:${bold?900:500}">${esc(name)}</td>
+      <td style="text-align:center">${arNum(fed)}</td>
+      <td style="text-align:center;white-space:nowrap">${arNum(fed)} / ٧٠</td>
+      <td style="text-align:center" class="مبلغ">${fmtPct(ratio)}</td>
+      <td class="مبلغ" style="color:var(--إيراد)">${fmt(t.rev*ratio)}</td>
+      <td class="مبلغ" style="color:var(--مصروف)">${fmt(t.exp*ratio)}</td>
+      <td class="مبلغ">${fmt(t.net*ratio)}</td></tr>`;
+  };
+  return `
+  <div class="مرشحات بطاقة">
+    <div><label>السنة</label><select onchange="fYear=this.value;render()">
+      <option value="all" ${fYear==="all"?"selected":""}>كل السنوات</option>
+      ${years.map(y=>`<option value="${y}" ${String(fYear)===String(y)?"selected":""}>${arNum(y)}</option>`).join("")}
+    </select></div>
+    <div><label>الشهر</label><select onchange="fMonth=this.value;render()">
+      <option value="all" ${fMonth==="all"?"selected":""}>كل الشهور</option>
+      ${MONTHS.map((m,i)=>`<option value="${i}" ${String(fMonth)===String(i)?"selected":""}>${m}</option>`).join("")}
+    </select></div>
+    <div style="align-self:center;color:var(--رمادي);font-size:12.5px">يسري الترشيح على كل الأرقام أدناه وعلى شريحة صافي الربح.</div>
+  </div>
+  <div class="شبكة-ملخص">
+    <div class="بطاقة-رقم إيرادات"><div class="تسمية">إجمالي الإيرادات</div><div class="قيمة">${fmt(t.rev)} ج.م</div></div>
+    <div class="بطاقة-رقم مصروفات"><div class="تسمية">إجمالي المصروفات</div><div class="قيمة">${fmt(t.exp)} ج.م</div></div>
+    <div class="بطاقة-رقم"><div class="تسمية">صافي ${t.net>=0?"الربح":"الخسارة"}</div><div class="قيمة" style="color:${t.net>=0?"var(--إيراد)":"var(--مصروف)"}">${fmt(Math.abs(t.net))} ج.م</div></div>
+  </div>
+
+  <h3 class="قسم">المصروفات حسب البند</h3>
+  <div class="لف-الجدول بطاقة" style="padding:0">
+    <table><thead><tr><th>البند</th><th>المبلغ (ج.م)</th><th style="width:45%">النسبة من المصروفات</th></tr></thead>
+    <tbody>
+    ${catRows.length? catRows.sort((a,b)=>b.v-a.v).map(r=>`
+      <tr><td>${esc(r.c)}</td><td class="مبلغ">${fmt(r.v)}</td>
+      <td><div style="background:var(--خط);border-radius:6px;height:14px;overflow:hidden">
+        <div style="height:100%;width:${(r.v/t.exp*100).toFixed(1)}%;background:var(--مصروف);opacity:.8"></div></div>
+      <span style="font-size:11.5px;color:var(--رمادي)">${fmtPct(r.v/t.exp)}</span></td></tr>`).join("")
+    : `<tr><td colspan="3" class="فارغ">لا توجد مصروفات ضمن نطاق الترشيح الحالي.</td></tr>`}
+    </tbody></table>
+  </div>
+
+  <h3 class="قسم">التوزيع بين الشريكين</h3>
+  <div class="لف-الجدول بطاقة" style="padding:0">
+    <table><thead><tr><th>الشريك</th><th>الحصة (فدان)</th><th>الكسر</th><th>النسبة</th><th>نصيب الإيرادات</th><th>نصيب المصروفات</th><th>نصيب الصافي</th></tr></thead>
+    <tbody>${groups.map(g=>shareRow(g.n,g.f,g.fill,true)).join("")}</tbody>
+    <tfoot><tr><td>الإجمالي</td><td style="text-align:center">${arNum(70)}</td><td></td><td style="text-align:center">١٠٠٪</td>
+      <td class="مبلغ">${fmt(t.rev)}</td><td class="مبلغ">${fmt(t.exp)}</td><td class="مبلغ">${fmt(t.net)}</td></tr></tfoot>
+    </table>
+  </div>
+
+  <h3 class="قسم">التفصيل الداخلي لأفراد كل شريك</h3>
+  <div class="لف-الجدول بطاقة" style="padding:0">
+    <table><thead><tr><th>الاسم</th><th>الحصة (فدان)</th><th>الكسر</th><th>النسبة</th><th>نصيب الإيرادات</th><th>نصيب المصروفات</th><th>نصيب الصافي</th></tr></thead>
+    <tbody>${PARTNERS.map(p=>shareRow(`${p.n} (${p.g})`, p.f, p.g==="أ"?"rgba(44,110,73,.06)":"rgba(201,162,39,.08)", false)).join("")}</tbody>
+    <tfoot><tr><td>الإجمالي (تحقق = ٧٠ فداناً / ١٠٠٪)</td><td style="text-align:center">${arNum(70)}</td><td></td><td style="text-align:center">١٠٠٪</td>
+      <td class="مبلغ">${fmt(t.rev)}</td><td class="مبلغ">${fmt(t.exp)}</td><td class="مبلغ">${fmt(t.net)}</td></tr></tfoot>
+    </table>
+  </div>
+  <p class="ملاحظة">النسب محسوبة بالكسور القانونية الدقيقة على ٧٠ وفقاً للمادة الرابعة من العقد. تكاليف ملفات التقنين لا تُسجل هنا — يتحملها كل شريك عن ملفاته وفقاً للمادة السابعة. البيانات تُحفظ تلقائياً على هذا الجهاز وتعمل بدون إنترنت؛ استخدم زر «نسخة احتياطية» في تبويب المصروفات دورياً ولنقل البيانات إلى جهاز آخر.</p>`;
+}
+
+/* ====== أحداث ====== */
+window.setTab = k => { tab = k; render(); };
+window.addRow = async (e, kind) => {
+  e.preventDefault();
+  const f = e.target;
+  const row = {id:uid(), date:f.date.value, cat:f.cat.value, desc:f.desc.value.trim(),
+    amount:parseFloat(f.amount.value), notes:f.notes.value.trim()};
+  if(!row.date || !row.cat || !(row.amount>0)) return;
+  (kind==="exp"?data.expenses:data.revenues).push(row);
+  await save(); render();
+  toast(kind==="exp" ? "أُضيف المصروف وحُفظ" : "أُضيف الإيراد وحُفظ");
+};
+window.delRow = async (kind, id) => {
+  if(!confirm("حذف هذا القيد نهائياً؟")) return;
+  const list = kind==="exp"?data.expenses:data.revenues;
+  const i = list.findIndex(r=>r.id===id);
+  if(i>-1){ list.splice(i,1); await save(); render(); toast("حُذف القيد"); }
+};
+window.resetAll = async () => {
+  if(!confirm("سيتم مسح كل المصروفات والإيرادات نهائياً. هل أنت متأكد؟")) return;
+  data = {expenses:[], revenues:[]};
+  await save(); render(); toast("تم مسح كل البيانات");
+};
+window.exportCsv = kind => {
+  const isExp = kind==="exp";
+  const list = isExp?data.expenses:data.revenues;
+  if(!list.length){ toast("لا توجد بيانات للتصدير"); return; }
+  const head = ["التاريخ","الشهر","السنة",(isExp?"البند":"النوع"),"البيان","المبلغ","ملاحظات"];
+  const lines = [head.join(",")].concat([...list].sort((a,b)=>a.date.localeCompare(b.date)).map(r=>
+    [r.date, monthOf(r.date), yearOf(r.date), `"${r.cat}"`, `"${(r.desc||"").replace(/"/g,'""')}"`, r.amount, `"${(r.notes||"").replace(/"/g,'""')}"`].join(",")));
+  const blob = new Blob(["\uFEFF"+lines.join("\n")], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = isExp?"مصروفات المزرعة.csv":"إيرادات المزرعة.csv";
+  a.click(); URL.revokeObjectURL(a.href);
+};
+
+window.backupJson = () => {
+  const blob = new Blob([JSON.stringify(data, null, 1)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  const d = new Date().toISOString().slice(0,10);
+  a.download = `نسخة حسابات المزرعة ${d}.json`;
+  a.click(); URL.revokeObjectURL(a.href);
+  toast("نُزّلت النسخة الاحتياطية");
+};
+window.restoreJson = async input => {
+  const file = input.files[0]; if(!file) return;
+  try{
+    const parsed = JSON.parse(await file.text());
+    if(!Array.isArray(parsed.expenses) || !Array.isArray(parsed.revenues)) throw 0;
+    if(!confirm(`سيحل محتوى النسخة (${parsed.expenses.length} مصروفاً و${parsed.revenues.length} إيراداً) محل البيانات الحالية على هذا الجهاز. متابعة؟`)) { input.value=""; return; }
+    data = parsed; await save(); render(); toast("استُرجعت النسخة بنجاح");
+  }catch(e){ toast("الملف غير صالح — اختر نسخة احتياطية صادرة من التطبيق"); }
+  input.value = "";
+};
+
+/* ====== بدء ====== */
+(async () => {
+  await load(); render();
+  const fi = document.createElement("input");
+  fi.type = "file"; fi.id = "restoreFile"; fi.accept = "application/json";
+  fi.style.display = "none"; fi.onchange = () => restoreJson(fi);
+  document.body.appendChild(fi);
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+})();
+</script>
+</body>
+</html>
