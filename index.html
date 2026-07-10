@@ -126,7 +126,16 @@ let fYear = "all", fMonth = "all";
 let isAdmin = !!localStorage.getItem(TOKEN_KEY);
 let publishedAt = null;   // آخر نشر معروض للشركاء
 let editing = null;       // {kind, id} أثناء تعديل قيد
-let dirty = false;        // تعديلات محلية لم تُنشر بعد
+const DIRTY_KEY = "farm-accounts-dirty", SYNC_KEY = "farm-accounts-synced-at";
+let dirty = localStorage.getItem(DIRTY_KEY) === "1";  // تعديلات لم تُنشر (محفوظة عبر الجلسات)
+let publishing = false;
+const setDirty = v => { dirty = v; localStorage.setItem(DIRTY_KEY, v ? "1" : "0"); };
+let pubTimer = null;
+const scheduleAutoPublish = () => {
+  if(!isAdmin || !localStorage.getItem(TOKEN_KEY)) return;
+  clearTimeout(pubTimer);
+  pubTimer = setTimeout(() => { if(navigator.onLine) publish(true); }, 1500);
+};
 
 /* ====== أدوات ====== */
 const fmt = n => {
@@ -141,7 +150,7 @@ const esc = s => String(s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">"
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 
 async function save(){
-  try{ localStorage.setItem(KEY, JSON.stringify(data)); dirty = true; }
+  try{ localStorage.setItem(KEY, JSON.stringify(data)); setDirty(true); scheduleAutoPublish(); }
   catch(e){ console.error("تعذر الحفظ", e); toast("تعذر حفظ البيانات — المساحة ممتلئة؟"); }
 }
 async function fetchPublished(){
@@ -158,7 +167,23 @@ async function load(){
     try{
       const v = localStorage.getItem(KEY);
       if(v) data = JSON.parse(v);
-      else if(pub) data = {expenses:pub.expenses||[], revenues:pub.revenues||[]};
+      if(pub){
+        if(!dirty || !v){
+          data = {expenses:pub.expenses||[], revenues:pub.revenues||[]};
+          localStorage.setItem(KEY, JSON.stringify(data));
+          localStorage.setItem(SYNC_KEY, pub.updatedAt || "");
+          setDirty(false);
+        }else if(pub.updatedAt && pub.updatedAt !== localStorage.getItem(SYNC_KEY)){
+          const keepLocal = confirm("تنبيه تزامن: توجد نسخة منشورة أحدث من جهاز آخر، وعلى هذا الجهاز تعديلات لم تُنشر.\n\nموافق = الاحتفاظ بتعديلات هذا الجهاز ونشرها فوق المنشور\nإلغاء = اعتماد النسخة المنشورة وإلغاء تعديلات هذا الجهاز");
+          if(keepLocal){ scheduleAutoPublish(); }
+          else{
+            data = {expenses:pub.expenses||[], revenues:pub.revenues||[]};
+            localStorage.setItem(KEY, JSON.stringify(data));
+            localStorage.setItem(SYNC_KEY, pub.updatedAt || "");
+            setDirty(false);
+          }
+        }else{ scheduleAutoPublish(); }
+      }
     }catch(e){}
   }else{
     data = pub ? {expenses:pub.expenses||[], revenues:pub.revenues||[]} : {expenses:[], revenues:[]};
@@ -197,7 +222,7 @@ function render(){
     <div class="تحت-العنوان">70 فداناً – مدق البترول – مركز سملوط – محافظة المنيا · النسب وفق عقد الشراكة</div>
     <div style="margin-top:12px;font-size:12.5px;font-weight:700;display:inline-block;padding:5px 14px;border-radius:999px;
       background:${isAdmin?"rgba(44,110,73,.12)":"rgba(201,162,39,.15)"};color:${isAdmin?"var(--زرع-غامق)":"#7A5C1E"}">
-      ${isAdmin ? "وضع المدير — أنت تتحكم في الإدخال والنشر" + (dirty?" · توجد تعديلات لم تُنشر بعد":"")
+      ${isAdmin ? "وضع المدير — المزامنة التلقائية مفعّلة" + (dirty?" · جارٍ نشر آخر التعديلات…":" · كل شيء متزامن ✓")
                 : "نسخة الاطلاع للشركاء" + (publishedAt ? " · آخر تحديث: " + new Date(publishedAt).toLocaleString("ar-EG-u-nu-latn") : " · لم تُنشر بيانات بعد")}
     </div><br>
     <div class="شريحة-صافي ${t.net>=0?"ربح":"خسارة"}">
@@ -251,6 +276,7 @@ function viewEntry(kind){
         ${ed?`<button class="ثانوي" type="button" onclick="cancelEdit()">إلغاء التعديل</button>`:""}
         <button class="ثانوي" type="button" onclick="exportCsv('${kind}')">تصدير CSV</button>
         ${isExp?`<button class="أساسي" type="button" style="background:var(--قمح);color:#3D3000" onclick="publish()">نشر التحديثات للشركاء</button>
+        <button class="ثانوي" type="button" onclick="pullPublished()">تحميل آخر نسخة منشورة</button>
         <button class="ثانوي" type="button" onclick="backupJson()">نسخة احتياطية</button>
         <button class="ثانوي" type="button" onclick="document.getElementById('restoreFile').click()">استرجاع نسخة</button>
         <button class="ثانوي" type="button" onclick="resetAll()" style="color:var(--مصروف)">مسح كل البيانات</button>`:""}
@@ -404,24 +430,42 @@ window.exportCsv = kind => {
   a.click(); URL.revokeObjectURL(a.href);
 };
 
-window.publish = async () => {
+window.publish = async (auto) => {
   const token = localStorage.getItem(TOKEN_KEY);
-  if(!token){ toast("لا يوجد مفتاح نشر على هذا الجهاز"); return; }
+  if(!token){ if(!auto) toast("لا يوجد مفتاح نشر على هذا الجهاز"); return; }
+  if(publishing) return;
+  publishing = true;
   const api = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE}`;
   const headers = {Authorization:"Bearer "+token, Accept:"application/vnd.github+json"};
   try{
-    toast("جارٍ النشر…");
+    if(!auto) toast("جارٍ النشر…");
     let sha;
-    const cur = await fetch(api, {headers});
+    const cur = await fetch(api, {headers, cache:"no-store"});
     if(cur.ok) sha = (await cur.json()).sha;
     const payload = {expenses:data.expenses, revenues:data.revenues, updatedAt:new Date().toISOString()};
     const body = {message:"تحديث حسابات المزرعة", content: btoa(unescape(encodeURIComponent(JSON.stringify(payload)))), ...(sha?{sha}:{})};
     const res = await fetch(api, {method:"PUT", headers, body: JSON.stringify(body)});
     if(res.status===401 || res.status===403) throw new Error("مفتاح النشر غير صالح أو انتهت صلاحيته");
+    if(res.status===409){ publishing=false; scheduleAutoPublish(); return; }
     if(!res.ok) throw new Error("رفض GitHub الطلب (" + res.status + ")");
-    dirty = false; publishedAt = payload.updatedAt; render();
-    toast("نُشرت التحديثات — ستظهر للشركاء خلال دقيقة");
-  }catch(e){ toast(e.message || "تعذر النشر — تحقق من الاتصال والمفتاح"); }
+    setDirty(false); publishedAt = payload.updatedAt;
+    localStorage.setItem(SYNC_KEY, payload.updatedAt);
+    render();
+    toast(auto ? "تمت المزامنة تلقائياً ✓" : "نُشرت التحديثات — ستظهر للشركاء خلال دقيقة");
+  }catch(e){ if(!auto) toast(e.message || "تعذر النشر — تحقق من الاتصال والمفتاح"); }
+  publishing = false;
+};
+window.pullPublished = async () => {
+  const pub = await fetchPublished();
+  if(!pub){ toast("لا توجد نسخة منشورة بعد أو تعذر الاتصال"); return; }
+  const when = pub.updatedAt ? new Date(pub.updatedAt).toLocaleString("ar-EG-u-nu-latn") : "غير معروف";
+  if(!confirm(`سيحل المنشور (آخر تحديث: ${when}) محل مسودة هذا الجهاز، وستضيع أي قيود محلية لم تُنشر. متابعة؟`)) return;
+  data = {expenses:pub.expenses||[], revenues:pub.revenues||[]};
+  publishedAt = pub.updatedAt || null;
+  localStorage.setItem(KEY, JSON.stringify(data));
+  localStorage.setItem(SYNC_KEY, pub.updatedAt || "");
+  setDirty(false); editing = null; render();
+  toast("حُمّلت آخر نسخة منشورة على هذا الجهاز");
 };
 window.adminLogin = () => {
   const t = prompt("الصق مفتاح النشر (GitHub Fine-grained Token) — للمدير فقط:");
@@ -460,6 +504,18 @@ window.restoreJson = async input => {
 };
 
 /* ====== بدء ====== */
+document.addEventListener("visibilitychange", async () => {
+  if(document.visibilityState !== "visible") return;
+  if(isAdmin && dirty){ scheduleAutoPublish(); return; }
+  const pub = await fetchPublished();
+  if(pub && pub.updatedAt && pub.updatedAt !== (publishedAt||"")){
+    publishedAt = pub.updatedAt;
+    data = {expenses:pub.expenses||[], revenues:pub.revenues||[]};
+    if(isAdmin){ localStorage.setItem(KEY, JSON.stringify(data)); localStorage.setItem(SYNC_KEY, pub.updatedAt); }
+    render(); toast("حُدّثت البيانات من آخر نشر");
+  }
+});
+window.addEventListener("online", () => { if(isAdmin && dirty) scheduleAutoPublish(); });
 (async () => {
   await load(); render();
   const fi = document.createElement("input");
