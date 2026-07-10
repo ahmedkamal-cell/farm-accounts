@@ -116,11 +116,16 @@ const PARTNERS = [
 const TOTAL_FED = 70;
 const MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 const KEY = "farm-accounts-samalut-v1";
+const TOKEN_KEY = "farm-accounts-admin-token";
+const OWNER = "ahmedkamal-cell", REPO = "farm-accounts", FILE = "data.json";
 
 /* ====== الحالة ====== */
 let data = {expenses:[], revenues:[]};
 let tab = "exp";
 let fYear = "all", fMonth = "all";
+let isAdmin = !!localStorage.getItem(TOKEN_KEY);
+let publishedAt = null;   // آخر نشر معروض للشركاء
+let dirty = false;        // تعديلات محلية لم تُنشر بعد
 
 /* ====== أدوات ====== */
 const fmt = n => n.toLocaleString("ar-EG",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -132,14 +137,28 @@ const esc = s => String(s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">"
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 
 async function save(){
-  try{ localStorage.setItem(KEY, JSON.stringify(data)); }
+  try{ localStorage.setItem(KEY, JSON.stringify(data)); dirty = true; }
   catch(e){ console.error("تعذر الحفظ", e); toast("تعذر حفظ البيانات — المساحة ممتلئة؟"); }
 }
-async function load(){
+async function fetchPublished(){
   try{
-    const v = localStorage.getItem(KEY);
-    if(v) data = JSON.parse(v);
-  }catch(e){ /* لا توجد بيانات محفوظة بعد */ }
+    const res = await fetch(FILE + "?ts=" + Date.now(), {cache:"no-store"});
+    if(!res.ok) return null;
+    return await res.json();
+  }catch(e){ return null; }
+}
+async function load(){
+  const pub = await fetchPublished();
+  if(pub) publishedAt = pub.updatedAt || null;
+  if(isAdmin){
+    try{
+      const v = localStorage.getItem(KEY);
+      if(v) data = JSON.parse(v);
+      else if(pub) data = {expenses:pub.expenses||[], revenues:pub.revenues||[]};
+    }catch(e){}
+  }else{
+    data = pub ? {expenses:pub.expenses||[], revenues:pub.revenues||[]} : {expenses:[], revenues:[]};
+  }
 }
 function toast(msg){
   let t = document.getElementById("toast");
@@ -172,6 +191,11 @@ function render(){
   <header>
     <div class="عنوان">حسابات مزرعة سملوط</div>
     <div class="تحت-العنوان">٧٠ فداناً – مدق البترول – مركز سملوط – محافظة المنيا · النسب وفق عقد الشراكة</div>
+    <div style="margin-top:12px;font-size:12.5px;font-weight:700;display:inline-block;padding:5px 14px;border-radius:999px;
+      background:${isAdmin?"rgba(44,110,73,.12)":"rgba(201,162,39,.15)"};color:${isAdmin?"var(--زرع-غامق)":"#7A5C1E"}">
+      ${isAdmin ? "وضع المدير — أنت تتحكم في الإدخال والنشر" + (dirty?" · توجد تعديلات لم تُنشر بعد":"")
+                : "نسخة الاطلاع للشركاء" + (publishedAt ? " · آخر تحديث: " + new Date(publishedAt).toLocaleString("ar-EG") : " · لم تُنشر بيانات بعد")}
+    </div><br>
     <div class="شريحة-صافي ${t.net>=0?"ربح":"خسارة"}">
       <span style="font-size:13px;color:var(--رمادي);font-weight:700">صافي ${t.net>=0?"الربح":"الخسارة"}${filterLabel()}</span>
       <b>${fmt(Math.abs(t.net))} ج.م</b>
@@ -186,7 +210,12 @@ function render(){
     <button role="tab" class="${tab==="rev"?"نشط":""}" onclick="setTab('rev')">الإيرادات</button>
     <button role="tab" class="${tab==="sum"?"نشط":""}" onclick="setTab('sum')">الملخص والتوزيع</button>
   </nav>
-  <main>${tab==="exp"?viewEntry("exp"):tab==="rev"?viewEntry("rev"):viewSummary()}</main>`;
+  <main>${tab==="exp"?viewEntry("exp"):tab==="rev"?viewEntry("rev"):viewSummary()}</main>
+  <p style="text-align:center;margin-top:26px">
+    ${isAdmin
+      ? `<button class="ثانوي" onclick="adminLogout()">الخروج من وضع المدير على هذا الجهاز</button>`
+      : `<button class="ثانوي" onclick="adminLogin()" style="font-size:12px;color:var(--رمادي)">دخول مدير الحسابات</button>`}
+  </p>`;
 }
 function filterLabel(){
   if(fYear==="all" && fMonth==="all") return " (الكل)";
@@ -203,7 +232,7 @@ function viewEntry(kind){
   const rows = [...list].sort((a,b)=>b.date.localeCompare(a.date));
   const total = list.reduce((s,r)=>s+r.amount,0);
   return `
-  <div class="بطاقة">
+  ${isAdmin ? `<div class="بطاقة">
     <form class="إدخال" onsubmit="addRow(event,'${kind}')">
       <div><label>التاريخ</label><input required type="date" name="date"></div>
       <div><label>${isExp?"البند":"النوع"}</label><select required name="cat"><option value="" disabled selected>اختر…</option>${catOpts}</select></div>
@@ -213,15 +242,19 @@ function viewEntry(kind){
       <div class="ممتد أزرار">
         <button class="أساسي" type="submit">${isExp?"إضافة المصروف":"إضافة الإيراد"}</button>
         <button class="ثانوي" type="button" onclick="exportCsv('${kind}')">تصدير CSV</button>
-        ${isExp?`<button class="ثانوي" type="button" onclick="backupJson()">نسخة احتياطية</button>
+        ${isExp?`<button class="أساسي" type="button" style="background:var(--قمح);color:#3D3000" onclick="publish()">نشر التحديثات للشركاء</button>
+        <button class="ثانوي" type="button" onclick="backupJson()">نسخة احتياطية</button>
         <button class="ثانوي" type="button" onclick="document.getElementById('restoreFile').click()">استرجاع نسخة</button>
         <button class="ثانوي" type="button" onclick="resetAll()" style="color:var(--مصروف)">مسح كل البيانات</button>`:""}
       </div>
     </form>
-  </div>
+  </div>` : `<div class="بطاقة" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <span style="font-size:13px;color:var(--رمادي)">هذه نسخة اطلاع — الإدخال والتعديل بيد مدير الحسابات فقط.</span>
+    <button class="ثانوي" type="button" onclick="exportCsv('${kind}')">تصدير CSV</button>
+  </div>`}
   <div class="لف-الجدول بطاقة" style="padding:0">
     <table>
-      <thead><tr><th>التاريخ</th><th>الشهر</th><th>السنة</th><th>${isExp?"البند":"النوع"}</th><th>البيان</th><th>المبلغ (ج.م)</th><th>ملاحظات</th><th></th></tr></thead>
+      <thead><tr><th>التاريخ</th><th>الشهر</th><th>السنة</th><th>${isExp?"البند":"النوع"}</th><th>البيان</th><th>المبلغ (ج.م)</th><th>ملاحظات</th>${isAdmin?"<th></th>":""}</tr></thead>
       <tbody>
         ${rows.length? rows.map(r=>`
           <tr>
@@ -230,7 +263,7 @@ function viewEntry(kind){
             <td>${esc(r.cat)}</td><td>${esc(r.desc||"—")}</td>
             <td class="مبلغ" style="color:${isExp?"var(--مصروف)":"var(--إيراد)"}">${fmt(r.amount)}</td>
             <td>${esc(r.notes||"")}</td>
-            <td><button class="حذف" onclick="delRow('${kind}','${r.id}')" aria-label="حذف">حذف ✕</button></td>
+            ${isAdmin?`<td><button class="حذف" onclick="delRow('${kind}','${r.id}')" aria-label="حذف">حذف ✕</button></td>`:""}
           </tr>`).join("")
         : `<tr><td colspan="8" class="فارغ">لا توجد ${isExp?"مصروفات":"إيرادات"} مسجلة بعد — أضف أول قيد من النموذج أعلاه.</td></tr>`}
       </tbody>
@@ -309,7 +342,7 @@ function viewSummary(){
       <td class="مبلغ">${fmt(t.rev)}</td><td class="مبلغ">${fmt(t.exp)}</td><td class="مبلغ">${fmt(t.net)}</td></tr></tfoot>
     </table>
   </div>
-  <p class="ملاحظة">النسب محسوبة بالكسور القانونية الدقيقة على ٧٠ وفقاً للمادة الرابعة من العقد. تكاليف ملفات التقنين لا تُسجل هنا — يتحملها كل شريك عن ملفاته وفقاً للمادة السابعة. البيانات تُحفظ تلقائياً على هذا الجهاز وتعمل بدون إنترنت؛ استخدم زر «نسخة احتياطية» في تبويب المصروفات دورياً ولنقل البيانات إلى جهاز آخر.</p>`;
+  <p class="ملاحظة">النسب محسوبة بالكسور القانونية الدقيقة على ٧٠ وفقاً للمادة الرابعة من العقد. تكاليف ملفات التقنين لا تُسجل هنا — يتحملها كل شريك عن ملفاته وفقاً للمادة السابعة. يعرض الشركاء آخر نسخة منشورة من المدير، ولا يملك أحد سواه الإضافة أو الحذف أو النشر. المدير: سجّل قيودك ثم اضغط «نشر التحديثات للشركاء» لتصل للجميع، وخذ «نسخة احتياطية» دورياً.</p>`;
 }
 
 /* ====== أحداث ====== */
@@ -349,6 +382,41 @@ window.exportCsv = kind => {
   a.click(); URL.revokeObjectURL(a.href);
 };
 
+window.publish = async () => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if(!token){ toast("لا يوجد مفتاح نشر على هذا الجهاز"); return; }
+  const api = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE}`;
+  const headers = {Authorization:"Bearer "+token, Accept:"application/vnd.github+json"};
+  try{
+    toast("جارٍ النشر…");
+    let sha;
+    const cur = await fetch(api, {headers});
+    if(cur.ok) sha = (await cur.json()).sha;
+    const payload = {expenses:data.expenses, revenues:data.revenues, updatedAt:new Date().toISOString()};
+    const body = {message:"تحديث حسابات المزرعة", content: btoa(unescape(encodeURIComponent(JSON.stringify(payload)))), ...(sha?{sha}:{})};
+    const res = await fetch(api, {method:"PUT", headers, body: JSON.stringify(body)});
+    if(res.status===401 || res.status===403) throw new Error("مفتاح النشر غير صالح أو انتهت صلاحيته");
+    if(!res.ok) throw new Error("رفض GitHub الطلب (" + res.status + ")");
+    dirty = false; publishedAt = payload.updatedAt; render();
+    toast("نُشرت التحديثات — ستظهر للشركاء خلال دقيقة");
+  }catch(e){ toast(e.message || "تعذر النشر — تحقق من الاتصال والمفتاح"); }
+};
+window.adminLogin = () => {
+  const t = prompt("الصق مفتاح النشر (GitHub Fine-grained Token) — للمدير فقط:");
+  if(!t) return;
+  if(!/^(ghp_|github_pat_)/.test(t.trim())){ alert("هذا لا يبدو مفتاح GitHub صالحاً"); return; }
+  localStorage.setItem(TOKEN_KEY, t.trim());
+  isAdmin = true;
+  const v = localStorage.getItem(KEY);
+  if(!v) localStorage.setItem(KEY, JSON.stringify(data));
+  render(); toast("تم تفعيل وضع المدير على هذا الجهاز");
+};
+window.adminLogout = () => {
+  if(!confirm("سيتحول هذا الجهاز لنسخة الاطلاع فقط. تعديلاتك غير المنشورة ستبقى محفوظة محلياً. متابعة؟")) return;
+  localStorage.removeItem(TOKEN_KEY);
+  isAdmin = false;
+  (async()=>{ await load(); render(); })();
+};
 window.backupJson = () => {
   const blob = new Blob([JSON.stringify(data, null, 1)], {type:"application/json"});
   const a = document.createElement("a");
