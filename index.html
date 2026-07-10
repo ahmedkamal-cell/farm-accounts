@@ -129,11 +129,12 @@ let editing = null;       // {kind, id} أثناء تعديل قيد
 let dirty = false;        // تعديلات محلية لم تُنشر بعد
 
 /* ====== أدوات ====== */
-const AR_MAP = {"0":"٠","1":"١","2":"٢","3":"٣","4":"٤","5":"٥","6":"٦","7":"٧","8":"٨","9":"٩",".":"٫",",":"٬"};
-const toAr = s => String(s).replace(/[0-9.,]/g, c => AR_MAP[c]);
-const fmt = n => toAr(n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}));
-const fmtPct = n => toAr((n*100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:4})) + "%";
-const arNum = n => toAr(n.toLocaleString("en-US"));
+const fmt = n => {
+  const hasFrac = Math.round(Math.abs(n) * 100) % 100 !== 0;
+  return n.toLocaleString("en-US", {minimumFractionDigits: hasFrac ? 2 : 0, maximumFractionDigits: 2});
+};
+const fmtPct = n => (n*100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:4}) + "%";
+const arNum = n => String(n);
 const monthOf = d => MONTHS[new Date(d+"T00:00:00").getMonth()];
 const yearOf = d => new Date(d+"T00:00:00").getFullYear();
 const esc = s => String(s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
@@ -193,19 +194,19 @@ function render(){
   app.innerHTML = `
   <header>
     <div class="عنوان">حسابات مزرعة سملوط</div>
-    <div class="تحت-العنوان">٧٠ فداناً – مدق البترول – مركز سملوط – محافظة المنيا · النسب وفق عقد الشراكة</div>
+    <div class="تحت-العنوان">70 فداناً – مدق البترول – مركز سملوط – محافظة المنيا · النسب وفق عقد الشراكة</div>
     <div style="margin-top:12px;font-size:12.5px;font-weight:700;display:inline-block;padding:5px 14px;border-radius:999px;
       background:${isAdmin?"rgba(44,110,73,.12)":"rgba(201,162,39,.15)"};color:${isAdmin?"var(--زرع-غامق)":"#7A5C1E"}">
       ${isAdmin ? "وضع المدير — أنت تتحكم في الإدخال والنشر" + (dirty?" · توجد تعديلات لم تُنشر بعد":"")
-                : "نسخة الاطلاع للشركاء" + (publishedAt ? " · آخر تحديث: " + toAr(new Date(publishedAt).toLocaleString("ar-EG")) : " · لم تُنشر بيانات بعد")}
+                : "نسخة الاطلاع للشركاء" + (publishedAt ? " · آخر تحديث: " + new Date(publishedAt).toLocaleString("ar-EG-u-nu-latn") : " · لم تُنشر بيانات بعد")}
     </div><br>
     <div class="شريحة-صافي ${t.net>=0?"ربح":"خسارة"}">
       <span style="font-size:13px;color:var(--رمادي);font-weight:700">صافي ${t.net>=0?"الربح":"الخسارة"}${filterLabel()}</span>
       <b>${fmt(Math.abs(t.net))} ج.م</b>
     </div>
-    <div class="حقل-الحصص" title="حقل الحصص: كل قطعة بعرض حصة صاحبها من الـ٧٠ فداناً">
+    <div class="حقل-الحصص" title="حقل الحصص: كل قطعة بعرض حصة صاحبها من الـ70 فداناً">
       <div class="شريط">${PARTNERS.map(p=>`<div class="قطعة" style="width:${p.f/TOTAL_FED*100}%;background:${p.c}">${p.n.split(" ")[0]} · ${arNum(p.f)} ف</div>`).join("")}</div>
-      <div class="مفتاح-الحصص">${PARTNERS.map(p=>`<span><i style="background:${p.c}"></i>${p.n.split(" ").slice(0,2).join(" ")} (${p.g}) — ${arNum(p.f)} / ٧٠</span>`).join("")}</div>
+      <div class="مفتاح-الحصص">${PARTNERS.map(p=>`<span><i style="background:${p.c}"></i>${p.n.split(" ").slice(0,2).join(" ")} (${p.g}) — ${arNum(p.f)} / 70</span>`).join("")}</div>
     </div>
   </header>
   <nav class="تبويبات" role="tablist">
@@ -295,7 +296,7 @@ function viewSummary(){
     return `<tr style="background:${fill}">
       <td style="font-weight:${bold?900:500}">${esc(name)}</td>
       <td style="text-align:center">${arNum(fed)}</td>
-      <td style="text-align:center;white-space:nowrap">${arNum(fed)} / ٧٠</td>
+      <td style="text-align:center;white-space:nowrap">${arNum(fed)} / 70</td>
       <td style="text-align:center" class="مبلغ">${fmtPct(ratio)}</td>
       <td class="مبلغ" style="color:var(--إيراد)">${fmt(t.rev*ratio)}</td>
       <td class="مبلغ" style="color:var(--مصروف)">${fmt(t.exp*ratio)}</td>
@@ -336,7 +337,7 @@ function viewSummary(){
   <div class="لف-الجدول بطاقة" style="padding:0">
     <table><thead><tr><th>الشريك</th><th>الحصة (فدان)</th><th>الكسر</th><th>النسبة</th><th>نصيب الإيرادات</th><th>نصيب المصروفات</th><th>نصيب الصافي</th></tr></thead>
     <tbody>${groups.map(g=>shareRow(g.n,g.f,g.fill,true)).join("")}</tbody>
-    <tfoot><tr><td>الإجمالي</td><td style="text-align:center">${arNum(70)}</td><td></td><td style="text-align:center">١٠٠٪</td>
+    <tfoot><tr><td>الإجمالي</td><td style="text-align:center">${arNum(70)}</td><td></td><td style="text-align:center">100%</td>
       <td class="مبلغ">${fmt(t.rev)}</td><td class="مبلغ">${fmt(t.exp)}</td><td class="مبلغ">${fmt(t.net)}</td></tr></tfoot>
     </table>
   </div>
@@ -345,11 +346,11 @@ function viewSummary(){
   <div class="لف-الجدول بطاقة" style="padding:0">
     <table><thead><tr><th>الاسم</th><th>الحصة (فدان)</th><th>الكسر</th><th>النسبة</th><th>نصيب الإيرادات</th><th>نصيب المصروفات</th><th>نصيب الصافي</th></tr></thead>
     <tbody>${PARTNERS.map(p=>shareRow(`${p.n} (${p.g})`, p.f, p.g==="أ"?"rgba(44,110,73,.06)":"rgba(201,162,39,.08)", false)).join("")}</tbody>
-    <tfoot><tr><td>الإجمالي (تحقق = ٧٠ فداناً / ١٠٠٪)</td><td style="text-align:center">${arNum(70)}</td><td></td><td style="text-align:center">١٠٠٪</td>
+    <tfoot><tr><td>الإجمالي (تحقق = 70 فداناً / 100%)</td><td style="text-align:center">${arNum(70)}</td><td></td><td style="text-align:center">100%</td>
       <td class="مبلغ">${fmt(t.rev)}</td><td class="مبلغ">${fmt(t.exp)}</td><td class="مبلغ">${fmt(t.net)}</td></tr></tfoot>
     </table>
   </div>
-  <p class="ملاحظة">النسب محسوبة بالكسور القانونية الدقيقة على ٧٠ وفقاً للمادة الرابعة من العقد. تكاليف ملفات التقنين لا تُسجل هنا — يتحملها كل شريك عن ملفاته وفقاً للمادة السابعة. يعرض الشركاء آخر نسخة منشورة من المدير، ولا يملك أحد سواه الإضافة أو الحذف أو النشر. المدير: سجّل قيودك ثم اضغط «نشر التحديثات للشركاء» لتصل للجميع، وخذ «نسخة احتياطية» دورياً.</p>`;
+  <p class="ملاحظة">النسب محسوبة بالكسور القانونية الدقيقة على 70 وفقاً للمادة الرابعة من العقد. تكاليف ملفات التقنين لا تُسجل هنا — يتحملها كل شريك عن ملفاته وفقاً للمادة السابعة. يعرض الشركاء آخر نسخة منشورة من المدير، ولا يملك أحد سواه الإضافة أو الحذف أو النشر. المدير: سجّل قيودك ثم اضغط «نشر التحديثات للشركاء» لتصل للجميع، وخذ «نسخة احتياطية» دورياً.</p>`;
 }
 
 /* ====== أحداث ====== */
