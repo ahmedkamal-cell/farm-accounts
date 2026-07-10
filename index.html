@@ -125,12 +125,15 @@ let tab = "exp";
 let fYear = "all", fMonth = "all";
 let isAdmin = !!localStorage.getItem(TOKEN_KEY);
 let publishedAt = null;   // آخر نشر معروض للشركاء
+let editing = null;       // {kind, id} أثناء تعديل قيد
 let dirty = false;        // تعديلات محلية لم تُنشر بعد
 
 /* ====== أدوات ====== */
-const fmt = n => n.toLocaleString("ar-EG",{minimumFractionDigits:2,maximumFractionDigits:2});
-const fmtPct = n => (n*100).toLocaleString("ar-EG",{minimumFractionDigits:2,maximumFractionDigits:4}) + "%";
-const arNum = n => n.toLocaleString("ar-EG");
+const AR_MAP = {"0":"٠","1":"١","2":"٢","3":"٣","4":"٤","5":"٥","6":"٦","7":"٧","8":"٨","9":"٩",".":"٫",",":"٬"};
+const toAr = s => String(s).replace(/[0-9.,]/g, c => AR_MAP[c]);
+const fmt = n => toAr(n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}));
+const fmtPct = n => toAr((n*100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:4})) + "%";
+const arNum = n => toAr(n.toLocaleString("en-US"));
 const monthOf = d => MONTHS[new Date(d+"T00:00:00").getMonth()];
 const yearOf = d => new Date(d+"T00:00:00").getFullYear();
 const esc = s => String(s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
@@ -194,7 +197,7 @@ function render(){
     <div style="margin-top:12px;font-size:12.5px;font-weight:700;display:inline-block;padding:5px 14px;border-radius:999px;
       background:${isAdmin?"rgba(44,110,73,.12)":"rgba(201,162,39,.15)"};color:${isAdmin?"var(--زرع-غامق)":"#7A5C1E"}">
       ${isAdmin ? "وضع المدير — أنت تتحكم في الإدخال والنشر" + (dirty?" · توجد تعديلات لم تُنشر بعد":"")
-                : "نسخة الاطلاع للشركاء" + (publishedAt ? " · آخر تحديث: " + new Date(publishedAt).toLocaleString("ar-EG") : " · لم تُنشر بيانات بعد")}
+                : "نسخة الاطلاع للشركاء" + (publishedAt ? " · آخر تحديث: " + toAr(new Date(publishedAt).toLocaleString("ar-EG")) : " · لم تُنشر بيانات بعد")}
     </div><br>
     <div class="شريحة-صافي ${t.net>=0?"ربح":"خسارة"}">
       <span style="font-size:13px;color:var(--رمادي);font-weight:700">صافي ${t.net>=0?"الربح":"الخسارة"}${filterLabel()}</span>
@@ -231,16 +234,20 @@ function viewEntry(kind){
   const catOpts = (isExp?CATS:REV_TYPES).map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
   const rows = [...list].sort((a,b)=>b.date.localeCompare(a.date));
   const total = list.reduce((s,r)=>s+r.amount,0);
+  const ed = (editing && editing.kind===kind) ? list.find(r=>r.id===editing.id) : null;
+  const catOpts2 = (isExp?CATS:REV_TYPES).map(c=>`<option value="${esc(c)}" ${ed&&ed.cat===c?"selected":""}>${esc(c)}</option>`).join("");
   return `
-  ${isAdmin ? `<div class="بطاقة">
+  ${isAdmin ? `<div class="بطاقة" ${ed?'style="outline:2px solid var(--قمح)"':""}>
+    ${ed?`<div style="font-size:13px;font-weight:900;color:#7A5C1E;margin-bottom:10px">تعديل قيد بتاريخ ${esc(ed.date)} — عدّل الحقول ثم اضغط «حفظ التعديل»</div>`:""}
     <form class="إدخال" onsubmit="addRow(event,'${kind}')">
-      <div><label>التاريخ</label><input required type="date" name="date"></div>
-      <div><label>${isExp?"البند":"النوع"}</label><select required name="cat"><option value="" disabled selected>اختر…</option>${catOpts}</select></div>
-      <div><label>البيان / الوصف</label><input type="text" name="desc" placeholder="${isExp?"مثال: سماد يوريا للقمح":"مثال: بيع محصول القمح"}"></div>
-      <div><label>المبلغ (ج.م)</label><input required type="number" name="amount" min="0.01" step="0.01" inputmode="decimal"></div>
-      <div class="ممتد"><label>ملاحظات</label><input type="text" name="notes"></div>
+      <div><label>التاريخ</label><input required type="date" name="date" value="${ed?esc(ed.date):""}"></div>
+      <div><label>${isExp?"البند":"النوع"}</label><select required name="cat">${ed?"":'<option value="" disabled selected>اختر…</option>'}${catOpts2}</select></div>
+      <div><label>البيان / الوصف</label><input type="text" name="desc" value="${ed?esc(ed.desc||""):""}" placeholder="${isExp?"مثال: سماد يوريا للقمح":"مثال: بيع محصول القمح"}"></div>
+      <div><label>المبلغ (ج.م)</label><input required type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" value="${ed?ed.amount:""}"></div>
+      <div class="ممتد"><label>ملاحظات</label><input type="text" name="notes" value="${ed?esc(ed.notes||""):""}"></div>
       <div class="ممتد أزرار">
-        <button class="أساسي" type="submit">${isExp?"إضافة المصروف":"إضافة الإيراد"}</button>
+        <button class="أساسي" type="submit">${ed?"حفظ التعديل":(isExp?"إضافة المصروف":"إضافة الإيراد")}</button>
+        ${ed?`<button class="ثانوي" type="button" onclick="cancelEdit()">إلغاء التعديل</button>`:""}
         <button class="ثانوي" type="button" onclick="exportCsv('${kind}')">تصدير CSV</button>
         ${isExp?`<button class="أساسي" type="button" style="background:var(--قمح);color:#3D3000" onclick="publish()">نشر التحديثات للشركاء</button>
         <button class="ثانوي" type="button" onclick="backupJson()">نسخة احتياطية</button>
@@ -263,7 +270,7 @@ function viewEntry(kind){
             <td>${esc(r.cat)}</td><td>${esc(r.desc||"—")}</td>
             <td class="مبلغ" style="color:${isExp?"var(--مصروف)":"var(--إيراد)"}">${fmt(r.amount)}</td>
             <td>${esc(r.notes||"")}</td>
-            ${isAdmin?`<td><button class="حذف" onclick="delRow('${kind}','${r.id}')" aria-label="حذف">حذف ✕</button></td>`:""}
+            ${isAdmin?`<td style="white-space:nowrap"><button class="حذف" style="color:var(--زرع-غامق)" onclick="editRow('${kind}','${r.id}')" aria-label="تعديل">تعديل ✎</button> <button class="حذف" onclick="delRow('${kind}','${r.id}')" aria-label="حذف">حذف ✕</button></td>`:""}
           </tr>`).join("")
         : `<tr><td colspan="8" class="فارغ">لا توجد ${isExp?"مصروفات":"إيرادات"} مسجلة بعد — أضف أول قيد من النموذج أعلاه.</td></tr>`}
       </tbody>
@@ -346,17 +353,31 @@ function viewSummary(){
 }
 
 /* ====== أحداث ====== */
-window.setTab = k => { tab = k; render(); };
+window.setTab = k => { tab = k; editing = null; render(); };
 window.addRow = async (e, kind) => {
   e.preventDefault();
   const f = e.target;
-  const row = {id:uid(), date:f.date.value, cat:f.cat.value, desc:f.desc.value.trim(),
+  const vals = {date:f.date.value, cat:f.cat.value, desc:f.desc.value.trim(),
     amount:parseFloat(f.amount.value), notes:f.notes.value.trim()};
-  if(!row.date || !row.cat || !(row.amount>0)) return;
-  (kind==="exp"?data.expenses:data.revenues).push(row);
-  await save(); render();
-  toast(kind==="exp" ? "أُضيف المصروف وحُفظ" : "أُضيف الإيراد وحُفظ");
+  if(!vals.date || !vals.cat || !(vals.amount>0)) return;
+  const list = kind==="exp"?data.expenses:data.revenues;
+  if(editing && editing.kind===kind){
+    const row = list.find(r=>r.id===editing.id);
+    if(row) Object.assign(row, vals);
+    editing = null;
+    await save(); render(); toast("عُدّل القيد وحُفظ — لا تنسَ النشر");
+  }else{
+    list.push({id:uid(), ...vals});
+    await save(); render();
+    toast(kind==="exp" ? "أُضيف المصروف وحُفظ" : "أُضيف الإيراد وحُفظ");
+  }
 };
+window.editRow = (kind, id) => {
+  editing = {kind, id};
+  render();
+  window.scrollTo({top:0, behavior:"smooth"});
+};
+window.cancelEdit = () => { editing = null; render(); };
 window.delRow = async (kind, id) => {
   if(!confirm("حذف هذا القيد نهائياً؟")) return;
   const list = kind==="exp"?data.expenses:data.revenues;
