@@ -137,6 +137,90 @@ const scheduleAutoPublish = () => {
   pubTimer = setTimeout(() => { if(navigator.onLine) publish(true); }, 1500);
 };
 
+/* ====== المزامنة (v8): قراءة موثوقة من GitHub API + دمج بالمعرّف ====== */
+let syncError = "";
+let pendingSync = false;
+const GH_API = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE}`;
+const ghHeaders = () => ({Authorization:"Bearer "+localStorage.getItem(TOKEN_KEY), Accept:"application/vnd.github+json"});
+const normData = d => ({expenses:(d&&d.expenses)||[], revenues:(d&&d.revenues)||[], deleted:(d&&d.deleted)||{}});
+function sigOf(d){
+  const n = normData(d);
+  const rows = [...n.expenses, ...n.revenues].map(r => [r.id, r.modAt||0, r.amount, r.date, r.cat, r.desc||"", r.notes||""].join(":")).sort();
+  const dels = Object.keys(n.deleted).sort().map(k => k + "=" + n.deleted[k]);
+  return rows.join("|") + "#" + dels.join("|");
+}
+/* دمج: الاتحاد بالمعرّف؛ الأحدث (modAt) يفوز؛ الحذف (deleted) يفوز إن كان بعد آخر تعديل */
+function mergeData(a, b){
+  a = normData(a); b = normData(b);
+  const tomb = {};
+  for(const src of [b.deleted, a.deleted]) for(const k in src) tomb[k] = Math.max(tomb[k]||0, src[k]);
+  const out = {expenses:[], revenues:[], deleted:tomb};
+  for(const kind of ["expenses","revenues"]){
+    const map = new Map();
+    for(const r of b[kind]) map.set(r.id, r);
+    for(const r of a[kind]){ const o = map.get(r.id); if(!o || (r.modAt||0) >= (o.modAt||0)) map.set(r.id, r); }
+    for(const r of map.values()){ if(tomb[r.id] && tomb[r.id] >= (r.modAt||0)) continue; out[kind].push(r); }
+  }
+  return out;
+}
+/* قراءة فورية ومتسقة من المستودع نفسه (وليس من نسخة Pages المتأخرة) */
+async function ghGet(){
+  const res = await fetch(GH_API, {headers: ghHeaders(), cache:"no-store"});
+  if(res.status===404) return {sha:null, remote:null};
+  if(res.status===401 || res.status===403) throw new Error("مفتاح النشر غير صالح أو انتهت صلاحيته");
+  if(!res.ok) throw new Error("تعذر قراءة آخر نسخة (" + res.status + ")");
+  const j = await res.json();
+  let text;
+  if(j.content && j.encoding==="base64") text = decodeURIComponent(escape(atob(j.content.replace(/\n/g,""))));
+  else{
+    const raw = await fetch(GH_API, {headers:{...ghHeaders(), Accept:"application/vnd.github.raw+json"}, cache:"no-store"});
+    text = await raw.text();
+  }
+  return {sha:j.sha, remote: JSON.parse(text)};
+}
+function bannerText(){
+  if(isAdmin){
+    const st = syncError ? " · ⚠ " + syncError + " — ستُعاد المحاولة تلقائياً" : (dirty ? " · جارٍ المزامنة…" : " · كل شيء متزامن ✓");
+    return "وضع المدير — المزامنة التلقائية مفعّلة" + st;
+  }
+  return "نسخة الاطلاع للشركاء" + (publishedAt ? " · آخر تحديث: " + new Date(publishedAt).toLocaleString("ar-EG-u-nu-latn") : " · لم تُنشر بيانات بعد");
+}
+function updateBanner(){ const el = document.getElementById("syncBanner"); if(el) el.textContent = bannerText(); }
+/* محرك المزامنة: اسحب الأحدث → ادمج → انشر (مع إعادة المحاولة عند التعارض) */
+async function syncNow(opts = {}){
+  if(!isAdmin || !localStorage.getItem(TOKEN_KEY)){ if(!opts.silent) toast("لا يوجد مفتاح نشر على هذا الجهاز"); return; }
+  if(publishing){ pendingSync = true; return; }
+  publishing = true; pendingSync = false;
+  const before = sigOf(data);
+  try{
+    for(let attempt = 0; attempt < 4; attempt++){
+      const {sha, remote} = await ghGet();
+      const merged = remote ? mergeData(data, remote) : normData(data);
+      const needPush = !remote || sigOf(merged) !== sigOf(remote);
+      data = merged;
+      localStorage.setItem(KEY, JSON.stringify(data));
+      if(remote && remote.updatedAt) publishedAt = remote.updatedAt;
+      if(!needPush){ setDirty(false); syncError = ""; localStorage.setItem(SYNC_KEY, (remote&&remote.updatedAt)||""); break; }
+      const payload = {expenses:data.expenses, revenues:data.revenues, deleted:data.deleted, updatedAt:new Date().toISOString()};
+      const pushedSig = sigOf(data);
+      const body = {message:"تحديث حسابات المزرعة", content: btoa(unescape(encodeURIComponent(JSON.stringify(payload)))), ...(sha?{sha}:{})};
+      const res = await fetch(GH_API, {method:"PUT", headers: ghHeaders(), body: JSON.stringify(body)});
+      if(res.status===409 || res.status===422){ if(attempt===3) throw new Error("تعارض متكرر مع جهاز آخر"); continue; }
+      if(res.status===401 || res.status===403) throw new Error("مفتاح النشر غير صالح أو انتهت صلاحيته");
+      if(!res.ok) throw new Error("رفض GitHub الطلب (" + res.status + ")");
+      syncError = ""; publishedAt = payload.updatedAt; localStorage.setItem(SYNC_KEY, payload.updatedAt);
+      if(sigOf(data) === pushedSig) setDirty(false); else pendingSync = true;   // قيد أُضيف أثناء النشر → مزامنة إضافية
+      toast(opts.silent ? "تمت المزامنة تلقائياً ✓" : "نُشرت التحديثات للشركاء ✓");
+      break;
+    }
+  }catch(e){
+    syncError = (e && e.message && !/Failed to fetch|NetworkError|Load failed|network/i.test(e.message)) ? e.message : "لا يوجد اتصال بالإنترنت";
+    if(!opts.silent) toast(syncError);
+  }finally{ publishing = false; }
+  if(sigOf(data) !== before) render(); else updateBanner();
+  if(pendingSync){ pendingSync = false; scheduleAutoPublish(); }
+}
+
 /* ====== أدوات ====== */
 const fmt = n => {
   const hasFrac = Math.round(Math.abs(n) * 100) % 100 !== 0;
@@ -161,32 +245,14 @@ async function fetchPublished(){
   }catch(e){ return null; }
 }
 async function load(){
-  const pub = await fetchPublished();
-  if(pub) publishedAt = pub.updatedAt || null;
-  if(isAdmin){
-    try{
-      const v = localStorage.getItem(KEY);
-      if(v) data = JSON.parse(v);
-      if(pub){
-        if(!dirty || !v){
-          data = {expenses:pub.expenses||[], revenues:pub.revenues||[]};
-          localStorage.setItem(KEY, JSON.stringify(data));
-          localStorage.setItem(SYNC_KEY, pub.updatedAt || "");
-          setDirty(false);
-        }else if(pub.updatedAt && pub.updatedAt !== localStorage.getItem(SYNC_KEY)){
-          const keepLocal = confirm("تنبيه تزامن: توجد نسخة منشورة أحدث من جهاز آخر، وعلى هذا الجهاز تعديلات لم تُنشر.\n\nموافق = الاحتفاظ بتعديلات هذا الجهاز ونشرها فوق المنشور\nإلغاء = اعتماد النسخة المنشورة وإلغاء تعديلات هذا الجهاز");
-          if(keepLocal){ scheduleAutoPublish(); }
-          else{
-            data = {expenses:pub.expenses||[], revenues:pub.revenues||[]};
-            localStorage.setItem(KEY, JSON.stringify(data));
-            localStorage.setItem(SYNC_KEY, pub.updatedAt || "");
-            setDirty(false);
-          }
-        }else{ scheduleAutoPublish(); }
-      }
-    }catch(e){}
+  const pub = await fetchPublished();            // نسخة Pages (للاطلاع فقط؛ قد تتأخر دقيقة أو أكثر)
+  if(pub && pub.updatedAt) publishedAt = pub.updatedAt;
+  if(isAdmin && localStorage.getItem(TOKEN_KEY)){
+    let local = null;
+    try{ const v = localStorage.getItem(KEY); if(v) local = JSON.parse(v); }catch(e){}
+    data = local ? normData(local) : (pub ? normData(pub) : normData(null));   // المحلي له الأولوية دائماً
   }else{
-    data = pub ? {expenses:pub.expenses||[], revenues:pub.revenues||[]} : {expenses:[], revenues:[]};
+    data = normData(pub);
   }
 }
 function toast(msg){
@@ -220,10 +286,9 @@ function render(){
   <header>
     <div class="عنوان">حسابات مزرعة سملوط</div>
     <div class="تحت-العنوان">70 فداناً – مدق البترول – مركز سملوط – محافظة المنيا · النسب وفق عقد الشراكة</div>
-    <div style="margin-top:12px;font-size:12.5px;font-weight:700;display:inline-block;padding:5px 14px;border-radius:999px;
+    <div id="syncBanner" style="margin-top:12px;font-size:12.5px;font-weight:700;display:inline-block;padding:5px 14px;border-radius:999px;
       background:${isAdmin?"rgba(44,110,73,.12)":"rgba(201,162,39,.15)"};color:${isAdmin?"var(--زرع-غامق)":"#7A5C1E"}">
-      ${isAdmin ? "وضع المدير — المزامنة التلقائية مفعّلة" + (dirty?" · جارٍ نشر آخر التعديلات…":" · كل شيء متزامن ✓")
-                : "نسخة الاطلاع للشركاء" + (publishedAt ? " · آخر تحديث: " + new Date(publishedAt).toLocaleString("ar-EG-u-nu-latn") : " · لم تُنشر بيانات بعد")}
+      ${bannerText()}
     </div><br>
     <div class="شريحة-صافي ${t.net>=0?"ربح":"خسارة"}">
       <span style="font-size:13px;color:var(--رمادي);font-weight:700">صافي ${t.net>=0?"الربح":"الخسارة"}${filterLabel()}</span>
@@ -390,11 +455,11 @@ window.addRow = async (e, kind) => {
   const list = kind==="exp"?data.expenses:data.revenues;
   if(editing && editing.kind===kind){
     const row = list.find(r=>r.id===editing.id);
-    if(row) Object.assign(row, vals);
+    if(row) Object.assign(row, vals, {modAt: Date.now()});
     editing = null;
-    await save(); render(); toast("عُدّل القيد وحُفظ — لا تنسَ النشر");
+    await save(); render(); toast("عُدّل القيد وحُفظ");
   }else{
-    list.push({id:uid(), ...vals});
+    list.push({id:uid(), ...vals, modAt: Date.now()});
     await save(); render();
     toast(kind==="exp" ? "أُضيف المصروف وحُفظ" : "أُضيف الإيراد وحُفظ");
   }
@@ -409,11 +474,13 @@ window.delRow = async (kind, id) => {
   if(!confirm("حذف هذا القيد نهائياً؟")) return;
   const list = kind==="exp"?data.expenses:data.revenues;
   const i = list.findIndex(r=>r.id===id);
-  if(i>-1){ list.splice(i,1); await save(); render(); toast("حُذف القيد"); }
+  if(i>-1){ const gone = list[i].id; list.splice(i,1); data.deleted = data.deleted || {}; data.deleted[gone] = Date.now(); await save(); render(); toast("حُذف القيد"); }
 };
 window.resetAll = async () => {
   if(!confirm("سيتم مسح كل المصروفات والإيرادات نهائياً. هل أنت متأكد؟")) return;
-  data = {expenses:[], revenues:[]};
+  const del = {...(data.deleted||{})}, nowT = Date.now();
+  [...data.expenses, ...data.revenues].forEach(r => del[r.id] = nowT);
+  data = {expenses:[], revenues:[], deleted:del};
   await save(); render(); toast("تم مسح كل البيانات");
 };
 window.exportCsv = kind => {
@@ -430,42 +497,18 @@ window.exportCsv = kind => {
   a.click(); URL.revokeObjectURL(a.href);
 };
 
-window.publish = async (auto) => {
-  const token = localStorage.getItem(TOKEN_KEY);
-  if(!token){ if(!auto) toast("لا يوجد مفتاح نشر على هذا الجهاز"); return; }
-  if(publishing) return;
-  publishing = true;
-  const api = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE}`;
-  const headers = {Authorization:"Bearer "+token, Accept:"application/vnd.github+json"};
-  try{
-    if(!auto) toast("جارٍ النشر…");
-    let sha;
-    const cur = await fetch(api, {headers, cache:"no-store"});
-    if(cur.ok) sha = (await cur.json()).sha;
-    const payload = {expenses:data.expenses, revenues:data.revenues, updatedAt:new Date().toISOString()};
-    const body = {message:"تحديث حسابات المزرعة", content: btoa(unescape(encodeURIComponent(JSON.stringify(payload)))), ...(sha?{sha}:{})};
-    const res = await fetch(api, {method:"PUT", headers, body: JSON.stringify(body)});
-    if(res.status===401 || res.status===403) throw new Error("مفتاح النشر غير صالح أو انتهت صلاحيته");
-    if(res.status===409){ publishing=false; scheduleAutoPublish(); return; }
-    if(!res.ok) throw new Error("رفض GitHub الطلب (" + res.status + ")");
-    setDirty(false); publishedAt = payload.updatedAt;
-    localStorage.setItem(SYNC_KEY, payload.updatedAt);
-    render();
-    toast(auto ? "تمت المزامنة تلقائياً ✓" : "نُشرت التحديثات — ستظهر للشركاء خلال دقيقة");
-  }catch(e){ if(!auto) toast(e.message || "تعذر النشر — تحقق من الاتصال والمفتاح"); }
-  publishing = false;
-};
+window.publish = async (auto) => syncNow({silent: !!auto});
 window.pullPublished = async () => {
-  const pub = await fetchPublished();
-  if(!pub){ toast("لا توجد نسخة منشورة بعد أو تعذر الاتصال"); return; }
-  const when = pub.updatedAt ? new Date(pub.updatedAt).toLocaleString("ar-EG-u-nu-latn") : "غير معروف";
-  if(!confirm(`سيحل المنشور (آخر تحديث: ${when}) محل مسودة هذا الجهاز، وستضيع أي قيود محلية لم تُنشر. متابعة؟`)) return;
-  data = {expenses:pub.expenses||[], revenues:pub.revenues||[]};
-  publishedAt = pub.updatedAt || null;
-  localStorage.setItem(KEY, JSON.stringify(data));
-  localStorage.setItem(SYNC_KEY, pub.updatedAt || "");
-  setDirty(false); editing = null; render();
-  toast("حُمّلت آخر نسخة منشورة على هذا الجهاز");
+  try{
+    const {remote} = await ghGet();
+    if(!remote){ toast("لا توجد نسخة منشورة بعد"); return; }
+    const when = remote.updatedAt ? new Date(remote.updatedAt).toLocaleString("ar-EG-u-nu-latn") : "غير معروف";
+    if(!confirm(`سيحل المنشور (آخر تحديث: ${when}) محل بيانات هذا الجهاز، وستضيع أي قيود محلية لم تُنشر. متابعة؟`)) return;
+    data = normData(remote); publishedAt = remote.updatedAt || null;
+    localStorage.setItem(KEY, JSON.stringify(data)); localStorage.setItem(SYNC_KEY, remote.updatedAt || "");
+    setDirty(false); syncError = ""; editing = null; render();
+    toast("حُمّلت آخر نسخة منشورة على هذا الجهاز");
+  }catch(e){ toast(e.message || "تعذر الاتصال بالمستودع"); }
 };
 window.adminLogin = () => {
   const t = prompt("الصق مفتاح النشر (GitHub Fine-grained Token) — للمدير فقط:");
@@ -474,8 +517,9 @@ window.adminLogin = () => {
   localStorage.setItem(TOKEN_KEY, t.trim());
   isAdmin = true;
   const v = localStorage.getItem(KEY);
-  if(!v) localStorage.setItem(KEY, JSON.stringify(data));
-  render(); toast("تم تفعيل وضع المدير على هذا الجهاز");
+  if(!v){ localStorage.setItem(KEY, JSON.stringify(data)); setDirty(false); }
+  render(); toast("تم تفعيل وضع المدير — جارٍ المزامنة…");
+  syncNow({silent:false});
 };
 window.adminLogout = () => {
   if(!confirm("سيتحول هذا الجهاز لنسخة الاطلاع فقط. تعديلاتك غير المنشورة ستبقى محفوظة محلياً. متابعة؟")) return;
@@ -498,7 +542,13 @@ window.restoreJson = async input => {
     const parsed = JSON.parse(await file.text());
     if(!Array.isArray(parsed.expenses) || !Array.isArray(parsed.revenues)) throw 0;
     if(!confirm(`سيحل محتوى النسخة (${parsed.expenses.length} مصروفاً و${parsed.revenues.length} إيراداً) محل البيانات الحالية على هذا الجهاز. متابعة؟`)) { input.value=""; return; }
-    data = parsed; await save(); render(); toast("استُرجعت النسخة بنجاح");
+    const nowT = Date.now();
+    const keep = new Set([...parsed.expenses, ...parsed.revenues].map(r => r.id));
+    const del = {...(data.deleted||{})};
+    [...data.expenses, ...data.revenues].forEach(r => { if(!keep.has(r.id)) del[r.id] = nowT; });
+    parsed.expenses.forEach(r => r.modAt = nowT); parsed.revenues.forEach(r => r.modAt = nowT);
+    data = {expenses:parsed.expenses, revenues:parsed.revenues, deleted:del};
+    await save(); render(); toast("استُرجعت النسخة بنجاح");
   }catch(e){ toast("الملف غير صالح — اختر نسخة احتياطية صادرة من التطبيق"); }
   input.value = "";
 };
@@ -506,18 +556,17 @@ window.restoreJson = async input => {
 /* ====== بدء ====== */
 document.addEventListener("visibilitychange", async () => {
   if(document.visibilityState !== "visible") return;
-  if(isAdmin && dirty){ scheduleAutoPublish(); return; }
+  if(isAdmin){ syncNow({silent:true}); return; }
   const pub = await fetchPublished();
   if(pub && pub.updatedAt && pub.updatedAt !== (publishedAt||"")){
-    publishedAt = pub.updatedAt;
-    data = {expenses:pub.expenses||[], revenues:pub.revenues||[]};
-    if(isAdmin){ localStorage.setItem(KEY, JSON.stringify(data)); localStorage.setItem(SYNC_KEY, pub.updatedAt); }
-    render(); toast("حُدّثت البيانات من آخر نشر");
+    publishedAt = pub.updatedAt; data = normData(pub); render(); toast("حُدّثت البيانات من آخر نشر");
   }
 });
-window.addEventListener("online", () => { if(isAdmin && dirty) scheduleAutoPublish(); });
+window.addEventListener("online", () => { if(isAdmin) syncNow({silent:true}); });
+setInterval(() => { if(isAdmin && dirty && navigator.onLine && !publishing) syncNow({silent:true}); }, 60000);
 (async () => {
   await load(); render();
+  if(isAdmin) syncNow({silent:true});
   const fi = document.createElement("input");
   fi.type = "file"; fi.id = "restoreFile"; fi.accept = "application/json";
   fi.style.display = "none"; fi.onchange = () => restoreJson(fi);
